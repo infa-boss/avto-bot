@@ -8,8 +8,8 @@ from datetime import datetime
 #   НАСТРОЙКИ
 # ============================================================
 
-BOT_TOKEN  = "8044357740:AAFTcGp_p90C40Eh8XLsx43LILxc74RcfRc"
-CHANNEL_ID = "-1003940862314"
+BOT_TOKEN  = os.environ.get("BOT_TOKEN", "")
+CHANNEL_ID = os.environ.get("CHANNEL_ID", "")
 
 # Порог цены в долларах
 PRICE_THRESHOLD_USD = 15000
