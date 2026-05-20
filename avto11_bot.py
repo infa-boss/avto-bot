@@ -8,7 +8,7 @@ from datetime import datetime
 #   НАСТРОЙКИ
 # ============================================================
 
-BOT_TOKEN  = "8044357740:AAF1GhwsMF27mEiV21h38YKQlK6BLZBc_Pk"
+BOT_TOKEN  = "8044357740:AAFTcGp_p90C40Eh8XLsx43LILxc74RcfRc"
 CHANNEL_ID = "-1003940862314"
 
 # Порог цены в долларах
