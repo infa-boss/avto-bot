@@ -8,9 +8,11 @@ USD_TO_RUB = 92.0
 CHECK_INTERVAL = 300
 SEEN_FILE = "seen_ads.json"
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-API_URL = "https://auto.ru/api/1.0/search/cars"
-API_PARAMS = {"sort": "cr_date-desc", "sort_dir": "desc", "section": "used", "category": "cars", "page": 1, "page_size": 20, "output_type": "list"}
-HEADERS = {"User-Agent": "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36", "Accept": "application/json", "Accept-Language": "ru-RU,ru;q=0.9", "x-client-app": "autoru-mobile-android", "x-client-date": str(int(time.time() * 1000)), "Referer": "https://auto.ru/", "Origin": "https://auto.ru"}
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json",
+}
 
 def now():
     return datetime.now().strftime("%H:%M:%S")
@@ -37,37 +39,26 @@ def save_seen(seen):
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
         json.dump(list(seen), f)
 
-def fetch_listings(session):
+def fetch_listings():
     try:
-        HEADERS["x-client-date"] = str(int(time.time() * 1000))
-        resp = session.get(API_URL, params=API_PARAMS, headers=HEADERS, timeout=20)
-        if resp.status_code == 403 or "showcaptcha" in resp.url:
-            print(f"[{now()}] Капча. Жду 10 минут...")
-            time.sleep(600)
-            return []
-        resp.raise_for_status()
-        return resp.json().get("offers", [])
+        url = "https://www.avito.ru/api/9/items?categoryId=9&locationId=0&sort=date&order=d&count=50&page=1"
+        resp = requests.get(url, headers=HEADERS, timeout=20)
+        if resp.status_code == 200:
+            return resp.json().get("items", [])
+        print(f"[{now()}] Авито вернул: {resp.status_code}")
+        return []
     except Exception as e:
         print(f"[{now()}] Ошибка: {e}")
         return []
 
-def parse_offer(offer):
+def parse_offer(item):
     try:
-        ad_id = offer.get("id", "")
-        url = "https://auto.ru" + offer.get("url", "")
-        price_rub = int(offer.get("price_info", {}).get("price", 0))
+        ad_id = str(item.get("id", ""))
+        title = item.get("title", "Без названия")
+        price_rub = item.get("priceDetailed", {}).get("value", 0)
         price_usd = round(price_rub / USD_TO_RUB) if price_rub else 0
-        veh = offer.get("vehicle_info", {})
-        mark = veh.get("mark_info", {}).get("name", "")
-        model = veh.get("model_info", {}).get("name", "")
-        year = offer.get("documents", {}).get("year", "")
-        tech = veh.get("tech_param", {})
-        disp = tech.get("displacement", 0)
-        disp_l = f"{round(disp/1000, 1)}" if disp else ""
-        trans = {"AUTOMATIC": "AT", "MANUAL": "MT", "ROBOT": "Робот", "VARIATOR": "CVT"}.get(tech.get("transmission", ""), "")
-        tech_str = " ".join(filter(None, [disp_l, trans]))
-        name = " ".join(filter(None, [mark, model, str(year)]))
-        return {"id": ad_id, "url": url, "name": name or "Без названия", "tech": tech_str, "price_rub": price_rub, "price_usd": price_usd}
+        url = "https://www.avito.ru" + item.get("urlPath", "")
+        return {"id": ad_id, "name": title, "price_rub": price_rub, "price_usd": price_usd, "url": url}
     except:
         return None
 
@@ -83,25 +74,28 @@ def format_message(ad):
     usd, rub = ad["price_usd"], ad["price_rub"]
     label = f"🟢 <b>Ниже {PRICE_THRESHOLD_USD:,}$!</b>" if usd and usd <= PRICE_THRESHOLD_USD else f"🔴 <b>Выше {PRICE_THRESHOLD_USD:,}$</b>" if usd else "⚪️ <b>Новое объявление</b>"
     price_line = f"💰 <b>{usd:,} $</b> (~{rub:,} ₽)" if rub else "💰 Цена не указана"
-    return "\n".join([label, f"🚗 {ad['name']}" + (f", {ad['tech']}" if ad["tech"] else ""), price_line, f'🔗 <a href="{ad["url"]}">Смотреть объявление</a>'])
+    return "\n".join([label, f"🚗 {ad['name']}", price_line, f'🔗 <a href="{ad["url"]}">Смотреть на Авито</a>'])
 
 def main():
     threading.Thread(target=run_web_server, daemon=True).start()
     print(f"[{now()}] Бот запущен")
-    send_message("✅ <b>Бот запущен</b>\nОтслеживаю новые объявления на Avto.ru.")
+    send_message("✅ <b>Бот запущен</b>\nОтслеживаю новые объявления на Авито.")
     seen = load_seen()
-    session = requests.Session()
     while True:
-        print(f"[{now()}] Проверяю...")
-        for raw in fetch_listings(session):
-            ad = parse_offer(raw)
+        print(f"[{now()}] Проверяю Авито...")
+        ads = fetch_listings()
+        print(f"[{now()}] Найдено: {len(ads)}")
+        new_count = 0
+        for item in ads:
+            ad = parse_offer(item)
             if not ad or ad["id"] in seen:
                 continue
             seen.add(ad["id"])
             send_message(format_message(ad))
+            new_count += 1
             time.sleep(1)
         save_seen(seen)
-        print(f"[{now()}] Жду {CHECK_INTERVAL//60} мин.")
+        print(f"[{now()}] Новых: {new_count}. Жду {CHECK_INTERVAL//60} мин.")
         time.sleep(CHECK_INTERVAL)
 
 if __name__ == "__main__":
