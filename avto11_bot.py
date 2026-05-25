@@ -9,6 +9,7 @@ PRICE_THRESHOLD_USD = 15000
 CHECK_INTERVAL = 300
 SEEN_FILE = "seen_ads.json"
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+KRW_RATE = 1350  # запасной курс если API недоступен
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -18,6 +19,16 @@ HEADERS = {
 
 def now():
     return datetime.now().strftime("%H:%M:%S")
+
+def get_krw_rate():
+    try:
+        resp = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=10)
+        rate = resp.json()["rates"]["KRW"]
+        print(f"[{now()}] Курс USD/KRW: {rate:.0f}", flush=True)
+        return rate
+    except Exception as e:
+        print(f"[{now()}] Не удалось получить курс: {e}. Использую {KRW_RATE}", flush=True)
+        return KRW_RATE
 
 def run_web_server():
     PORT = int(os.environ.get("PORT", 8080))
@@ -56,7 +67,7 @@ def fetch_listings():
         print(f"[{now()}] Ошибка: {e}", flush=True)
         return []
 
-def parse_offer(item):
+def parse_offer(item, rate):
     try:
         ad_id = str(item.get("Id", ""))
         manufacturer = item.get("Manufacturer", "")
@@ -64,7 +75,7 @@ def parse_offer(item):
         badge = item.get("Badge", "")
         year = item.get("Year", "")
         price_krw = item.get("Price", 0) * 10000
-        price_usd = round(price_krw / 1350) if price_krw else 0
+        price_usd = round(price_krw / rate) if price_krw else 0
         url = f"https://www.encar.com/dc/dc_cardetailview.do?carid={ad_id}"
         name = " ".join(filter(None, [manufacturer, model, badge, str(year)]))
         return {"id": ad_id, "name": name or "Без названия", "price_krw": price_krw, "price_usd": price_usd, "url": url}
@@ -82,12 +93,13 @@ def send_message(text):
     except Exception as e:
         print(f"[{now()}] Ошибка Telegram: {e}", flush=True)
 
-def format_message(ad):
+def format_message(ad, rate):
     usd = ad["price_usd"]
     krw = ad["price_krw"]
     label = f"🟢 <b>Ниже {PRICE_THRESHOLD_USD:,}$!</b>" if usd and usd <= PRICE_THRESHOLD_USD else f"🔴 <b>Выше {PRICE_THRESHOLD_USD:,}$</b>" if usd else "⚪️ <b>Новое объявление</b>"
     price_line = f"💰 <b>{usd:,} $</b> (~{krw:,} ₩)" if krw else "💰 Цена не указана"
-    return "\n".join([label, f"🚗 {ad['name']}", price_line, f'🔗 <a href="{ad["url"]}">Смотреть на Encar</a>'])
+    rate_line = f"📈 Курс: 1$ = {rate:.0f} ₩"
+    return "\n".join([label, f"🚗 {ad['name']}", price_line, rate_line, f'🔗 <a href="{ad["url"]}">Смотреть на Encar</a>'])
 
 def main():
     print("=== БОТ СТАРТУЕТ ===", flush=True)
@@ -95,29 +107,34 @@ def main():
     send_message("✅ <b>Бот запущен</b>\nОтслеживаю новые объявления на Encar.com 🇰🇷")
     seen = load_seen()
     first_run = len(seen) == 0
+    rate_update_counter = 0
+
+    rate = get_krw_rate()
 
     while True:
-        print(f"[{now()}] Проверяю Encar...", flush=True)
+        # Обновляем курс каждые 6 проверок (каждые 30 минут)
+        rate_update_counter += 1
+        if rate_update_counter >= 6:
+            rate = get_krw_rate()
+            rate_update_counter = 0
+
+        print(f"[{now()}] Проверяю Encar... (курс: {rate:.0f} ₩)", flush=True)
         ads = fetch_listings()
         new_count = 0
 
         for item in ads:
-            ad = parse_offer(item)
+            ad = parse_offer(item, rate)
             if not ad or ad["id"] in seen:
                 continue
-
             seen.add(ad["id"])
-
-            # При первом запуске просто запоминаем — не отправляем
             if first_run:
                 continue
-
-            send_message(format_message(ad))
+            send_message(format_message(ad, rate))
             new_count += 1
-            time.sleep(4)  # пауза 4 сек между сообщениями
+            time.sleep(4)
 
         if first_run:
-            print(f"[{now()}] Первый запуск — запомнили {len(seen)} объявлений. Теперь слежу за новыми.", flush=True)
+            print(f"[{now()}] Первый запуск — запомнили {len(seen)} объявлений.", flush=True)
             send_message(f"👀 Запомнил {len(seen)} текущих объявлений. Буду слать только новые!")
             first_run = False
 
