@@ -55,7 +55,7 @@ def save_seen(seen):
 def fetch_listings():
     try:
         print(f"[{now()}] Запрос к Encar...", flush=True)
-        url = "http://api.encar.com/search/car/list/general?count=true&q=(And.Hidden.N._.CarType.Y.)&sr=%7CRegDate%7C0%7C50"
+        url = "http://api.encar.com/search/car/list/general?count=true&q=(And.Hidden.N._.CarType.Y.)&sr=%7CModifiedDate%7C0%7C50"
         resp = requests.get(url, headers=HEADERS, timeout=15)
         print(f"[{now()}] Encar: {resp.status_code}", flush=True)
         if resp.status_code == 200:
