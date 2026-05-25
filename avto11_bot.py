@@ -1,3 +1,5 @@
+import sys
+sys.stdout.reconfigure(line_buffering=True)
 import requests, json, time, os, threading, http.server, socketserver
 from datetime import datetime
 
@@ -41,18 +43,18 @@ def save_seen(seen):
 
 def fetch_listings():
     try:
-        print(f"[{now()}] Отправляю запрос к Encar...")
+        print(f"[{now()}] Отправляю запрос к Encar...", flush=True)
         url = "http://api.encar.com/search/car/list/general?count=true&q=(And.Hidden.N._.CarType.Y.)&sr=%7CModifiedDate%7C0%7C50"
         resp = requests.get(url, headers=HEADERS, timeout=15)
-        print(f"[{now()}] Encar ответил: {resp.status_code}")
+        print(f"[{now()}] Encar ответил: {resp.status_code}", flush=True)
         if resp.status_code == 200:
             data = resp.json()
             items = data.get("SearchResults", [])
-            print(f"[{now()}] Получено объявлений: {len(items)}")
+            print(f"[{now()}] Получено: {len(items)}", flush=True)
             return items
         return []
     except Exception as e:
-        print(f"[{now()}] Ошибка запроса: {e}")
+        print(f"[{now()}] Ошибка: {e}", flush=True)
         return []
 
 def parse_offer(item):
@@ -72,16 +74,14 @@ def parse_offer(item):
 
 def send_message(text):
     try:
-        print(f"[{now()}] Отправляю в Telegram...")
         resp = requests.post(f"{TELEGRAM_API}/sendMessage", json={
             "chat_id": CHANNEL_ID, "text": text,
             "parse_mode": "HTML", "disable_web_page_preview": False,
         }, timeout=15)
-        print(f"[{now()}] Telegram ответил: {resp.status_code}")
         if not resp.ok:
-            print(f"[{now()}] Telegram error: {resp.text}")
+            print(f"[{now()}] Telegram error: {resp.text}", flush=True)
     except Exception as e:
-        print(f"[{now()}] Ошибка Telegram: {e}")
+        print(f"[{now()}] Ошибка Telegram: {e}", flush=True)
 
 def format_message(ad):
     usd = ad["price_usd"]
@@ -91,16 +91,15 @@ def format_message(ad):
     return "\n".join([label, f"🚗 {ad['name']}", price_line, f'🔗 <a href="{ad["url"]}">Смотреть на Encar</a>'])
 
 def main():
-    print(f"[{now()}] === БОТ СТАРТУЕТ ===")
-    print(f"[{now()}] TOKEN длина: {len(BOT_TOKEN)}, CHANNEL: {CHANNEL_ID}")
-    print(f"[{now()}] Запускаю веб-сервер...")
+    print("=== БОТ СТАРТУЕТ ===", flush=True)
+    print(f"TOKEN длина: {len(BOT_TOKEN)}, CHANNEL: {CHANNEL_ID}", flush=True)
     threading.Thread(target=run_web_server, daemon=True).start()
-    print(f"[{now()}] Веб-сервер запущен!")
+    print("Веб-сервер запущен!", flush=True)
     send_message("✅ <b>Бот запущен</b>\nОтслеживаю новые объявления на Encar.com 🇰🇷")
     seen = load_seen()
-    print(f"[{now()}] Известных объявлений: {len(seen)}")
+    print(f"Известных объявлений: {len(seen)}", flush=True)
     while True:
-        print(f"[{now()}] Проверяю Encar...")
+        print(f"[{now()}] Проверяю Encar...", flush=True)
         ads = fetch_listings()
         new_count = 0
         for item in ads:
@@ -112,7 +111,7 @@ def main():
             new_count += 1
             time.sleep(1)
         save_seen(seen)
-        print(f"[{now()}] Новых: {new_count}. Жду {CHECK_INTERVAL//60} мин.")
+        print(f"[{now()}] Новых: {new_count}. Жду {CHECK_INTERVAL//60} мин.", flush=True)
         time.sleep(CHECK_INTERVAL)
 
 if __name__ == "__main__":
