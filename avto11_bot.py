@@ -43,13 +43,12 @@ def save_seen(seen):
 
 def fetch_listings():
     try:
-        print(f"[{now()}] Отправляю запрос к Encar...", flush=True)
+        print(f"[{now()}] Запрос к Encar...", flush=True)
         url = "http://api.encar.com/search/car/list/general?count=true&q=(And.Hidden.N._.CarType.Y.)&sr=%7CModifiedDate%7C0%7C50"
         resp = requests.get(url, headers=HEADERS, timeout=15)
-        print(f"[{now()}] Encar ответил: {resp.status_code}", flush=True)
+        print(f"[{now()}] Encar: {resp.status_code}", flush=True)
         if resp.status_code == 200:
-            data = resp.json()
-            items = data.get("SearchResults", [])
+            items = resp.json().get("SearchResults", [])
             print(f"[{now()}] Получено: {len(items)}", flush=True)
             return items
         return []
@@ -92,24 +91,36 @@ def format_message(ad):
 
 def main():
     print("=== БОТ СТАРТУЕТ ===", flush=True)
-    print(f"TOKEN длина: {len(BOT_TOKEN)}, CHANNEL: {CHANNEL_ID}", flush=True)
     threading.Thread(target=run_web_server, daemon=True).start()
-    print("Веб-сервер запущен!", flush=True)
     send_message("✅ <b>Бот запущен</b>\nОтслеживаю новые объявления на Encar.com 🇰🇷")
     seen = load_seen()
-    print(f"Известных объявлений: {len(seen)}", flush=True)
+    first_run = len(seen) == 0
+
     while True:
         print(f"[{now()}] Проверяю Encar...", flush=True)
         ads = fetch_listings()
         new_count = 0
+
         for item in ads:
             ad = parse_offer(item)
             if not ad or ad["id"] in seen:
                 continue
+
             seen.add(ad["id"])
+
+            # При первом запуске просто запоминаем — не отправляем
+            if first_run:
+                continue
+
             send_message(format_message(ad))
             new_count += 1
-            time.sleep(1)
+            time.sleep(4)  # пауза 4 сек между сообщениями
+
+        if first_run:
+            print(f"[{now()}] Первый запуск — запомнили {len(seen)} объявлений. Теперь слежу за новыми.", flush=True)
+            send_message(f"👀 Запомнил {len(seen)} текущих объявлений. Буду слать только новые!")
+            first_run = False
+
         save_seen(seen)
         print(f"[{now()}] Новых: {new_count}. Жду {CHECK_INTERVAL//60} мин.", flush=True)
         time.sleep(CHECK_INTERVAL)
