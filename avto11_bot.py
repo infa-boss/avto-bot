@@ -41,15 +41,18 @@ def save_seen(seen):
 
 def fetch_listings():
     try:
+        print(f"[{now()}] Отправляю запрос к Encar...")
         url = "http://api.encar.com/search/car/list/general?count=true&q=(And.Hidden.N._.CarType.Y.)&sr=%7CModifiedDate%7C0%7C50"
-        resp = requests.get(url, headers=HEADERS, timeout=20)
-        print(f"[{now()}] Encar статус: {resp.status_code}")
+        resp = requests.get(url, headers=HEADERS, timeout=15)
+        print(f"[{now()}] Encar ответил: {resp.status_code}")
         if resp.status_code == 200:
             data = resp.json()
-            return data.get("SearchResults", [])
+            items = data.get("SearchResults", [])
+            print(f"[{now()}] Получено объявлений: {len(items)}")
+            return items
         return []
     except Exception as e:
-        print(f"[{now()}] Ошибка: {e}")
+        print(f"[{now()}] Ошибка запроса: {e}")
         return []
 
 def parse_offer(item):
@@ -63,22 +66,18 @@ def parse_offer(item):
         price_usd = round(price_krw / 1350) if price_krw else 0
         url = f"https://www.encar.com/dc/dc_cardetailview.do?carid={ad_id}"
         name = " ".join(filter(None, [manufacturer, model, badge, str(year)]))
-        return {
-            "id": ad_id,
-            "name": name or "Без названия",
-            "price_krw": price_krw,
-            "price_usd": price_usd,
-            "url": url,
-        }
+        return {"id": ad_id, "name": name or "Без названия", "price_krw": price_krw, "price_usd": price_usd, "url": url}
     except:
         return None
 
 def send_message(text):
     try:
+        print(f"[{now()}] Отправляю в Telegram...")
         resp = requests.post(f"{TELEGRAM_API}/sendMessage", json={
             "chat_id": CHANNEL_ID, "text": text,
             "parse_mode": "HTML", "disable_web_page_preview": False,
         }, timeout=15)
+        print(f"[{now()}] Telegram ответил: {resp.status_code}")
         if not resp.ok:
             print(f"[{now()}] Telegram error: {resp.text}")
     except Exception as e:
@@ -92,14 +91,17 @@ def format_message(ad):
     return "\n".join([label, f"🚗 {ad['name']}", price_line, f'🔗 <a href="{ad["url"]}">Смотреть на Encar</a>'])
 
 def main():
+    print(f"[{now()}] === БОТ СТАРТУЕТ ===")
+    print(f"[{now()}] TOKEN длина: {len(BOT_TOKEN)}, CHANNEL: {CHANNEL_ID}")
+    print(f"[{now()}] Запускаю веб-сервер...")
     threading.Thread(target=run_web_server, daemon=True).start()
-    print(f"[{now()}] Бот запущен — мониторинг Encar.com")
+    print(f"[{now()}] Веб-сервер запущен!")
     send_message("✅ <b>Бот запущен</b>\nОтслеживаю новые объявления на Encar.com 🇰🇷")
     seen = load_seen()
+    print(f"[{now()}] Известных объявлений: {len(seen)}")
     while True:
         print(f"[{now()}] Проверяю Encar...")
         ads = fetch_listings()
-        print(f"[{now()}] Найдено: {len(ads)}")
         new_count = 0
         for item in ads:
             ad = parse_offer(item)
