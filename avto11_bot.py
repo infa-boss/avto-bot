@@ -9,7 +9,7 @@ PRICE_THRESHOLD_USD = 15000
 CHECK_INTERVAL = 300
 SEEN_FILE = "seen_ads.json"
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-KRW_RATE = 1350  # запасной курс если API недоступен
+KRW_RATE = 1350
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -55,7 +55,7 @@ def save_seen(seen):
 def fetch_listings():
     try:
         print(f"[{now()}] Запрос к Encar...", flush=True)
-        url = "http://api.encar.com/search/car/list/general?count=true&q=(And.Hidden.N._.CarType.Y.)&sr=%7CModifiedDate%7C0%7C50"
+        url = "http://api.encar.com/search/car/list/general?count=true&q=(And.Hidden.N._.CarType.Y.)&sr=%7CRegDate%7C0%7C50"
         resp = requests.get(url, headers=HEADERS, timeout=15)
         print(f"[{now()}] Encar: {resp.status_code}", flush=True)
         if resp.status_code == 200:
@@ -108,11 +108,9 @@ def main():
     seen = load_seen()
     first_run = len(seen) == 0
     rate_update_counter = 0
-
     rate = get_krw_rate()
 
     while True:
-        # Обновляем курс каждые 6 проверок (каждые 30 минут)
         rate_update_counter += 1
         if rate_update_counter >= 6:
             rate = get_krw_rate()
