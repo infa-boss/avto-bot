@@ -1,7 +1,7 @@
 import sys
 sys.stdout.reconfigure(line_buffering=True)
 import requests, json, time, os, threading, http.server, socketserver
-from datetime import datetime
+from datetime import datetime, timezone
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "")
@@ -67,6 +67,21 @@ def fetch_listings():
         print(f"[{now()}] Ошибка: {e}", flush=True)
         return []
 
+def is_new_today(item):
+    try:
+        photos = item.get("Photos", [])
+        if not photos:
+            return False
+        updated = photos[0].get("updatedDate", "")
+        if not updated:
+            return False
+        # Формат: 2026-05-25T13:00:00
+        ad_date = datetime.strptime(updated[:10], "%Y-%m-%d").date()
+        today = datetime.now().date()
+        return ad_date >= today
+    except:
+        return False
+
 def parse_offer(item, rate):
     try:
         ad_id = str(item.get("Id", ""))
@@ -106,7 +121,6 @@ def main():
     threading.Thread(target=run_web_server, daemon=True).start()
     send_message("✅ <b>Бот запущен</b>\nОтслеживаю новые объявления на Encar.com 🇰🇷")
     seen = load_seen()
-    first_run = len(seen) == 0
     rate_update_counter = 0
     rate = get_krw_rate()
 
@@ -121,23 +135,21 @@ def main():
         new_count = 0
 
         for item in ads:
+            ad_id = str(item.get("Id", ""))
+            if ad_id in seen:
+                continue
+            if not is_new_today(item):
+                continue
             ad = parse_offer(item, rate)
-            if not ad or ad["id"] in seen:
+            if not ad:
                 continue
-            seen.add(ad["id"])
-            if first_run:
-                continue
+            seen.add(ad_id)
             send_message(format_message(ad, rate))
             new_count += 1
             time.sleep(4)
 
-        if first_run:
-            print(f"[{now()}] Первый запуск — запомнили {len(seen)} объявлений.", flush=True)
-            send_message(f"👀 Запомнил {len(seen)} текущих объявлений. Буду слать только новые!")
-            first_run = False
-
         save_seen(seen)
-        print(f"[{now()}] Новых: {new_count}. Жду {CHECK_INTERVAL//60} мин.", flush=True)
+        print(f"[{now()}] Новых сегодня: {new_count}. Жду {CHECK_INTERVAL//60} мин.", flush=True)
         time.sleep(CHECK_INTERVAL)
 
 if __name__ == "__main__":
