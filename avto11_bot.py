@@ -4,14 +4,14 @@ from datetime import datetime
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "")
 PRICE_THRESHOLD_USD = 15000
-USD_TO_RUB = 92.0
 CHECK_INTERVAL = 300
 SEEN_FILE = "seen_ads.json"
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "application/json",
+    "Accept": "application/json, text/javascript, */*",
+    "Referer": "https://www.encar.com/",
 }
 
 def now():
@@ -41,11 +41,12 @@ def save_seen(seen):
 
 def fetch_listings():
     try:
-        url = "https://www.avito.ru/api/9/items?categoryId=9&locationId=0&sort=date&order=d&count=50&page=1"
+        url = "http://api.encar.com/search/car/list/general?count=true&q=(And.Hidden.N._.CarType.Y.)&sr=%7CModifiedDate%7C0%7C50"
         resp = requests.get(url, headers=HEADERS, timeout=20)
+        print(f"[{now()}] Encar статус: {resp.status_code}")
         if resp.status_code == 200:
-            return resp.json().get("items", [])
-        print(f"[{now()}] Авито вернул: {resp.status_code}")
+            data = resp.json()
+            return data.get("SearchResults", [])
         return []
     except Exception as e:
         print(f"[{now()}] Ошибка: {e}")
@@ -53,36 +54,50 @@ def fetch_listings():
 
 def parse_offer(item):
     try:
-        ad_id = str(item.get("id", ""))
-        title = item.get("title", "Без названия")
-        price_rub = item.get("priceDetailed", {}).get("value", 0)
-        price_usd = round(price_rub / USD_TO_RUB) if price_rub else 0
-        url = "https://www.avito.ru" + item.get("urlPath", "")
-        return {"id": ad_id, "name": title, "price_rub": price_rub, "price_usd": price_usd, "url": url}
+        ad_id = str(item.get("Id", ""))
+        manufacturer = item.get("Manufacturer", "")
+        model = item.get("Model", "")
+        badge = item.get("Badge", "")
+        year = item.get("Year", "")
+        price_krw = item.get("Price", 0) * 10000
+        price_usd = round(price_krw / 1350) if price_krw else 0
+        url = f"https://www.encar.com/dc/dc_cardetailview.do?carid={ad_id}"
+        name = " ".join(filter(None, [manufacturer, model, badge, str(year)]))
+        return {
+            "id": ad_id,
+            "name": name or "Без названия",
+            "price_krw": price_krw,
+            "price_usd": price_usd,
+            "url": url,
+        }
     except:
         return None
 
 def send_message(text):
     try:
-        resp = requests.post(f"{TELEGRAM_API}/sendMessage", json={"chat_id": CHANNEL_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": False}, timeout=15)
+        resp = requests.post(f"{TELEGRAM_API}/sendMessage", json={
+            "chat_id": CHANNEL_ID, "text": text,
+            "parse_mode": "HTML", "disable_web_page_preview": False,
+        }, timeout=15)
         if not resp.ok:
             print(f"[{now()}] Telegram error: {resp.text}")
     except Exception as e:
         print(f"[{now()}] Ошибка Telegram: {e}")
 
 def format_message(ad):
-    usd, rub = ad["price_usd"], ad["price_rub"]
+    usd = ad["price_usd"]
+    krw = ad["price_krw"]
     label = f"🟢 <b>Ниже {PRICE_THRESHOLD_USD:,}$!</b>" if usd and usd <= PRICE_THRESHOLD_USD else f"🔴 <b>Выше {PRICE_THRESHOLD_USD:,}$</b>" if usd else "⚪️ <b>Новое объявление</b>"
-    price_line = f"💰 <b>{usd:,} $</b> (~{rub:,} ₽)" if rub else "💰 Цена не указана"
-    return "\n".join([label, f"🚗 {ad['name']}", price_line, f'🔗 <a href="{ad["url"]}">Смотреть на Авито</a>'])
+    price_line = f"💰 <b>{usd:,} $</b> (~{krw:,} ₩)" if krw else "💰 Цена не указана"
+    return "\n".join([label, f"🚗 {ad['name']}", price_line, f'🔗 <a href="{ad["url"]}">Смотреть на Encar</a>'])
 
 def main():
     threading.Thread(target=run_web_server, daemon=True).start()
-    print(f"[{now()}] Бот запущен")
-    send_message("✅ <b>Бот запущен</b>\nОтслеживаю новые объявления на Авито.")
+    print(f"[{now()}] Бот запущен — мониторинг Encar.com")
+    send_message("✅ <b>Бот запущен</b>\nОтслеживаю новые объявления на Encar.com 🇰🇷")
     seen = load_seen()
     while True:
-        print(f"[{now()}] Проверяю Авито...")
+        print(f"[{now()}] Проверяю Encar...")
         ads = fetch_listings()
         print(f"[{now()}] Найдено: {len(ads)}")
         new_count = 0
